@@ -25,14 +25,17 @@ import numpy as np
 import sys
 from datetime import datetime
 
-
 def start_logging(expInfo, log_name):
-    path = expInfo["exp_dir"] + "/" + log_name
+    if expInfo["out_dir"] is None:
+        path = expInfo["exp_dir"] + "/" + log_name
+    else:
+        if not os.path.exists(exp_dir + "/" + out_dir):
+            os.makedirs(exp_dir + "/" + out_dir)
+        path = expInfo["exp_dir"] + "/" + expInfo["out_dir"] + "/" + log_name
     print("Running information is being  saved in: ", path)
-    sys.stdout = open(path, 'a')
+    sys.stdout = open(path, 'w')
 
-
-def uniquify(path):
+def uniquify(path): # this is not being used currently
     counter = 0
     if os.path.exists(path):
         while True:
@@ -45,8 +48,7 @@ def uniquify(path):
                 break
     return path
 
-
-def lastPath(path):
+def lastPath(path): #This is not being used
     counter = 0
     if os.path.exists(path):
         while True:
@@ -80,9 +82,8 @@ def make_header_string(FIT2dParams, expInfo):
     return header_string
 
 
-def write_1M_dat_file(header_string, file_name, dir, data):
-    saveFileName = os.path.join(dir, file_name)
-    np.savetxt(saveFileName, data, fmt='%1.6e',
+def write_1M_dat_file(save_name, header_string, data):
+    np.savetxt(save_name, data, fmt='%1.6e',
                delimiter='    ', header=header_string)
     return
 
@@ -135,18 +136,7 @@ def makeAIobject(**kwargs):
         detector=detector, wavelength=wavelengthcalc)
     ai.setFit2D(float(directBeam), float(beamX), 1065.0-float(beamY),
                 tilt=float(tilt), tiltPlanRotation=float(tiltPlanRotation))
-
     return ai
-
-
-def make_Eiger_mask(image):
-    # mask vales are 2^32-1 = 4294967295 for 32 bit image
-    maskPixels = np.squeeze(np.where(image == 4294967295))
-    image.fill(0)
-    # for pyFAI masked values are 1 and rest are 0
-    image[maskPixels[0], maskPixels[1]] = 1
-    return np.array(image)
-
 
 def numLines(exp_dir, fname):
     lines = []
@@ -183,6 +173,41 @@ def readHeaderFile(exp_dir, fname):
 
     return civi, rigi, expTime
 
+def make_Eiger_mask(image):
+    if image.nframes == 1:
+        frame = image.data
+    else:
+        frame = image.getframe(0).data
+
+    # mask vales are 2^32-1 = 4294967295 for 32 bit image
+    maskPixels = np.squeeze(np.where(frame == 4294967295))
+    frame.fill(0)
+    # for pyFAI masked values are 1 and rest are 0
+    frame[maskPixels[0], maskPixels[1]] = 1
+    return np.array(frame)
+
+def import_reject_mask(exp_dir, reject_mask):
+    data = np.loadtxt(exp_dir + "/" + reject_mask, usecols=(0,1))
+    return data
+
+
+def make_reject_mask(image, reject_data):
+    # take x, y reject data and make 2d image mask
+    #image[image == 1] = 0  # this is zero already
+    image[ np.array(reject_data[:,1], dtype=np.int_) , np.array(reject_data[:,0], dtype=np.int_) ] = 1
+    return np.array(image)
+
+def make_counting_mask(image, counting_data):
+    image[ np.array(counting_data[:,1], dtype=np.int_) , np.array(counting_data[:,0], dtype=np.int_) ] = 1
+    image = 1 - image # invert maske
+    return np.array(image)
+
+
+def combine_masks(eiger_mask, user_mask, reject_mask, counting_mask):
+    combined_mask = eiger_mask + user_mask + reject_mask + counting_mask
+    combined_mask[combined_mask > 1] = 1
+    #combined_mask[combined_mask > 1] = 1
+    return np.array(combined_mask)
 
 def calc_norm(civi, rigi, thickness, TM, scale, use_rigi):
     if use_rigi is True:
@@ -191,67 +216,178 @@ def calc_norm(civi, rigi, thickness, TM, scale, use_rigi):
         norm_value = civi*thickness*TM/scale
     return norm_value
 
+def make_save_dir(exp_dir, out_dir):
+    if not os.path.exists(exp_dir + "/" + out_dir):
+        os.makedirs(exp_dir + "/" + out_dir)
+        print("Created " + exp_dir + "/" + out_dir)
 
-def integrate(ai, verbose, FIT2dParams, **kwargs):
+def make_save_filename(exp_dir, output_name_prefix, out_dir, smp_name, frames):
+    # smp_name should be string 
+    # frames a list of lists
+    #check if save directory exists and make it if not
 
-    # for now will unpack the dictonary in this ugly way
-    # Future version change to class at the moment have
-    # both
+    if output_name_prefix is not None:
+        if len(smp_name) == 1:
+            range_string = createRangeString(frames[0])
+            output_name_prefix = output_name_prefix + "_1M_" + smp_name[0]
+            if out_dir is not None:
+                save_name = os.path.join(exp_dir, out_dir, output_name_prefix + "_" + range_string + ".dat")
+            else:
+                save_name = os.path.join(exp_dir, output_name_prefix + "_" + range_string + ".dat")
 
-    # Needed for sample:
-    exp_dir = kwargs["exp_dir"]
-    mask = kwargs["mask"]
-    smp_name = kwargs["smp_name"]
-    average_smp_all = kwargs["average_smp_all"]
-    if average_smp_all == False:
-        avList_smp = kwargs['avList_smp']
-    thickness = kwargs["thickness"]
-    TM_smp = kwargs["TM_smp"]
-    scale = kwargs["scale"]
-    num_points = kwargs["num_points"]
-    civiSmp = kwargs["civiSMP"]
-    rigiSmp = kwargs["rigiSMP"]
-    use_rigi = kwargs["use_rigi"]
+        elif len(smp_name) > 1:
+            if out_dir is not None:
+                save_name = os.path.join(exp_dir, out_dir, output_name_prefix + "_1M_MIX_.dat")
+            else:
+                save_name = os.path.join(exp_dir, output_name_prefix + "_1M_MIX_.dat")
+    else:
+        if len(smp_name) == 1:
+            range_string = createRangeString(frames[0])
+            output_name_prefix = "1M_" + smp_name[0]
+            if out_dir is not None:
+                save_name = os.path.join(exp_dir, out_dir, output_name_prefix + "_" + range_string + ".dat")
+            else:
+                save_name = os.path.join(exp_dir, output_name_prefix + "_" + range_string + ".dat")
+        elif len(smp_name) > 1:
+            output_name_prefix = smp_name[0]
+            for index, item in enumerate(smp_name): 
+                if index != 0:
+                    output_name_prefix = output_name_prefix + "_" + item
+            output_name_prefix = output_name_prefix + "_"
+            if out_dir is not None:
+                save_name = os.path.join(exp_dir, out_dir, output_name_prefix + "1M_MIX_.dat")
+            else:
+                save_name = os.path.join(exp_dir, output_name_prefix + "_1M_MIX_.dat")
 
-    # Needed for background:
-    bkg_name = kwargs['bkg_name']
-    if bkg_name is not None:
-        average_bkg_all = kwargs["average_bkg_all"]
-        if average_bkg_all == False:
-            avList_bkg = kwargs["avList_bkg"]
-        civiBkg = kwargs["civiBKG"]
-        rigiBkg = kwargs["rigiBKG"]
-        TM_bkg = kwargs["TM_bkg"]
 
-    imgSmp = fabio.open(os.path.join(exp_dir, smp_name + '_master.h5'))
-    numFrames = imgSmp.nframes
-    if verbose is True:
-        print("Found ", str(numFrames), " frames in ",
-              os.path.join(exp_dir, smp_name + '_master.h5'))
+    return save_name
+
+def integrate_scale(avList, civi, rigi, thickness, TM, scale, 
+use_rigi, tot_num_Frames, maskData, img, ai, num_points, verbose, img_series_name):
+    
+    use_list = avList # make function for both average frames and no average. 
+    num_av = 0
+    numFrames = 0
+    total_use_Frames = 0
+    if use_list is None:
+        average_frames = False
+        use_list = []
+        for n in tot_num_Frames:
+            use_list.append([*range(n)])
+
+        IAll = []
+        errAll = []
+    else:
+        average_frames = True
+    for list in use_list:
+        total_use_Frames = total_use_Frames + len(list)
+
+    for index, item in enumerate(img):
+        numFrames = numFrames + len(use_list[index])
+        for cur_no, frame in enumerate(use_list[index]):
+            normValue = calc_norm(
+                civi[index][frame], rigi[index][frame], thickness, float(TM[index]), scale, use_rigi)
+            if tot_num_Frames[index] > 1:
+                current_frame = img[index].getframe(frame).data
+                
+            elif tot_num_Frames[index] == 1:
+                current_frame = img[index].data
+
+            q, I, err = ai.integrate1d(current_frame,
+                num_points, error_model="poisson", mask=maskData, unit='q_A^-1', normalization_factor=normValue)
+            if average_frames:
+                if num_av == 0:
+                    I_sum = I
+                    err_sum = np.power(err, 2)
+                elif num_av > 0:
+                    I_sum = np.add(I_sum, I)
+                    err_sum = np.add(err_sum, np.power(err, 2))
+                num_av += 1
+            else: IAll.append(I), errAll.append(err)
+
+            if verbose is True:
+                print("    Frame ID number: " + str(frame) +
+                        ". Processed image " + str(cur_no+1) + "/" + str(len(use_list[index])) + " in " + img_series_name[index] + "_master.h5 - " + str(num_av) + "/" + str(total_use_Frames) + " total integrated.")
+    if average_frames:
+        if verbose: print("Dividing by " + str(numFrames) + " for average.")
+        IMean = np.divide(I_sum, numFrames)
+        errMean = np.divide(np.sqrt(err_sum), numFrames)
+        if verbose is True: print("Averaging frames is complete.")
+        return q, IMean, errMean 
+
+    
+    else:
+        if verbose: print("Returning all 1D profiles from h5 file(s).")
+        return q, IAll, errAll
+
+def all_frame_list(tot_num_Frames):
+    all_frames = []
+    for frame in tot_num_Frames: all_frames.append([*range(frame)])
+    return all_frames
+
+
+def integrate(ai, verbose, FIT2dParams, **dat):
+    """
+        This part performs the processing of 1D frames and logic to output the 
+        data in a sensible way
+
+    """
+
+    imgSmp = []
+    tot_num_Frames = []
+
+    for index, item in enumerate(dat["smp_name"]):
+        imgSmp.append(fabio.open(os.path.join(dat["exp_dir"], item + '_master.h5'))) 
+        if index == 0: mask_info = fabio.open(os.path.join(dat["exp_dir"], item + '_master.h5'))
+        tot_num_Frames.append(imgSmp[-1].nframes)
+        
+        if tot_num_Frames == 0:
+            print("number of frames 0!!! There is a problem with the")
+
+        if verbose is True:
+            print("Found ", str(tot_num_Frames[-1]), " frames in ",
+                os.path.join(dat["exp_dir"], item + '_master.h5'))
 
     header_string = make_header_string(
-        FIT2dParams, kwargs)  # make header string
+        FIT2dParams, dat)  # make header string
 
-    if mask is None:
-        if numFrames == 1:
-            maskData = make_Eiger_mask(imgSmp.data)
-        else:
-            maskData = make_Eiger_mask(imgSmp.getframe(0).data)
-        if verbose is True:
-            print("Eiger mask (pixels with value = 4294967295 masked) applied")
+    # masked pixels are 1 unmasked pixels are 0
+    eiger_mask = make_Eiger_mask(mask_info)
+    
+    if verbose: print("Eiger mask (pixels with value = 4294967295 masked) applied.")
+
+    if dat["mask"] is not None:
+        user_mask = fabio.open(os.path.join(dat["exp_dir"], dat["mask"])).data
+        if verbose: print("Mask file " + dat["mask"] + " created.")
     else:
-        maskData = fabio.open(os.path.join(exp_dir, mask)).data
-        if verbose is True:
-            print("Mask file " + mask + " applied.")
-    if average_smp_all is True:
-        avList_smp = range(numFrames)
+        user_mask = np.zeros(eiger_mask.shape) # user masks is all 0
+    
+    if dat["reject_mask"] is not None:
+        reject_data = import_reject_mask(dat["exp_dir"], dat["reject_mask"])
+        reject_mask = make_reject_mask(np.zeros(eiger_mask.shape), reject_data)
+        if verbose: print("reject mask created")
+    else:
+        reject_mask = np.zeros(eiger_mask.shape)
+
+    if dat["counting_mask"] is not None:
+        counting_data = import_reject_mask(dat["exp_dir"], dat["counting_mask"])
+        counting_mask = make_counting_mask(np.zeros(eiger_mask.shape), counting_data)
+        if verbose: print("counting mask created")
+    else:
+        counting_mask = np.zeros(eiger_mask.shape)
+
+    mask_data = combine_masks(eiger_mask, user_mask, reject_mask, counting_mask)
+
+    if verbose: print("Combined masks.")
+
+    if dat["average_smp_all"] is True:
+        dat['avList_smp'] = all_frame_list(tot_num_Frames) # get list of frames to average over in each file, a bit strange updating input dictionary
 
     # this next part is very ugly! Need to update and remove repeated code etc
 
     # average over some number of frames TIDY BY COMBING ALL AND SOME (FUTURE WORK)
     # elif average_smp_all is False and avList_smp is not None:
-    if verbose is True:
-        print("Starting integration of sample frames, completed:")
+   
     ########################################################################
     # pyFAI integration options and vars
     ########################################################################
@@ -260,7 +396,7 @@ def integrate(ai, verbose, FIT2dParams, **kwargs):
     # error_model="poisson"
     # radial_range=None           # default
     # azimuth_range=None          # default
-    # mask=maskData
+    # mask=mask_data
     # dummy=None                  # default
     # delta_dummy=None            # default
     # polarization_factor=None    # default
@@ -274,171 +410,96 @@ def integrate(ai, verbose, FIT2dParams, **kwargs):
     # metadata=None               # default
     ###############################################################################
 
-    if avList_smp is not None:
-        numFrames = len(avList_smp)
-        num_av = 0
-        if len(avList_smp) > 1:
-            for frame in avList_smp:
-                normValueSmp = calc_norm(
-                    civiSmp[frame], rigiSmp[frame], thickness, TM_smp, scale, use_rigi)
-                q, ISmp, errSmp = ai.integrate1d(imgSmp.getframe(
-                    frame).data, num_points, error_model="poisson", mask=maskData, unit='q_A^-1', normalization_factor=normValueSmp)
-                if num_av == 0:
-                    I_sum = ISmp
-                    err_sum = np.power(errSmp, 2)
-                elif num_av > 0:
-                    I_sum = np.add(I_sum, ISmp)
-                    err_sum = np.add(err_sum, np.power(errSmp, 2))
-                num_av += 1
-                if verbose is True:
-                    print("    Sample frame number: " + str(frame) +
-                          ", processed " + str(num_av) + " of " + str(len(avList_smp)))
-            if verbose is True:
-                print("Averaging sample frames is complete.")
-            IMeanSmp = np.divide(I_sum, numFrames)
-            errMeanSmp = np.divide(np.sqrt(err_sum), numFrames)
+    if verbose is True: print("Starting integration of sample frames, completed:")
 
-        elif numFrames == 1:
-            #normValueSmp = civiSmp*thickness*TM_smp/scale
-            normValueSmp = calc_norm(
-                civiSmp[0], rigiSmp[0], thickness, TM_smp, scale, use_rigi)
-            q, IMeanSmp, errMeanSmp = ai.integrate1d(
-                imgSmp.data, num_points, error_model="poisson", mask=maskData, unit='q_A^-1', normalization_factor=normValueSmp)
-            if verbose is True:
-                print("    Sample frame number: " + str(frame) +
-                      ", processed " + str(num_av) + " of " + str(len(avList_smp)))
-
-        elif numFrames == 0:
-            print("error at line 120 num frames 0")
+    if dat['avList_smp'] is not None:
+        q, IMeanSmp, errMeanSmp = integrate_scale(dat['avList_smp'], dat["civiSMP"], dat["rigiSMP"], dat["thickness"], dat["TM_smp"], dat["scale"], 
+        dat["use_rigi"], tot_num_Frames, mask_data, imgSmp, ai, dat["num_points"], verbose, dat["smp_name"])
 
         # If no subtract background then directly save
-        if bkg_name is None:
-            # save data to .dat file in experiment folder
-            file_name = smp_name+"_av_" + \
-                str(avList_smp[0])+"-"+str(avList_smp[-1])+"_1M.dat"
-            write_1M_dat_file(header_string, file_name, exp_dir,
-                              np.transpose([q, IMeanSmp, errMeanSmp]))
+        if dat['bkg_name'] is None:
+            # save data to .dat file
+            if dat['out_dir'] is not None:
+                make_save_dir(dat["exp_dir"], dat['out_dir'])
+            save_name = make_save_filename(dat["exp_dir"], dat['output_name_prefix'], dat['out_dir'], dat["smp_name"], dat['avList_smp'])
+            write_1M_dat_file(save_name, header_string, np.transpose([q, IMeanSmp, errMeanSmp]))
             if verbose is True:
-                print("    Sample text file saved to " + exp_dir +
-                      "/" + file_name + " no background set, finished.")
+                print("    Sample text file saved to " + save_name + " no background set, finished.")
             return
 
     # no average
     # elif average_smp_all == False and avList_smp is None:
-    if avList_smp is None:
-        if numFrames > 1:
-            IAll = []
-            errAll = []
-            if verbose is True:
-                print("Starting radial integration of sample:")
-            for frame in range(numFrames):
-                normValueSmp = calc_norm(
-                    civiSmp[frame], rigiSmp[frame], thickness, TM_smp, scale, use_rigi)
-                q, I, err = ai.integrate1d(imgSmp.getframe(
-                    frame).data, num_points, error_model="poisson", mask=maskData, unit='q_A^-1', normalization_factor=normValueSmp)
-                IAll.append(I), errAll.append(err)
-                if verbose is True:
-                    print("   Completed: " + str(frame) + " / " +
-                          str(numFrames) + " sample frame")
-            if verbose:
-                print("No multi frame averaging")
 
-        elif numFrames == 1:
-            normValueSmp = calc_norm(
-                civiSmp[0], rigiSmp[0], thickness, TM_smp, scale, use_rigi)
-            q, IAll, errAll = ai.integrate1d(
-                imgSmp.data, num_points, error_model="poisson", mask=maskData, unit='q_A^-1', normalization_factor=normValueSmp)
-            if verbose is True:
-                print("Only one image in the experiment file, processed.")
-        elif numFrames == 0:
-            print("error at line 120 num frames 0")
+    if dat['avList_smp'] is None:
+        q, IAll, errAll = integrate_scale(dat['avList_smp'], dat["civiSMP"], dat["rigiSMP"], dat["thickness"], dat["TM_smp"], dat["scale"], 
+        dat["use_rigi"], tot_num_Frames, mask_data, imgSmp, ai, dat["num_points"], verbose, dat["smp_name"])  # get one 1D profile with correct scale
+    
+        # NEED TO condense saving!!!
+        if dat['bkg_name'] is None:
+            #Check if save dir exists and make if not
+            if dat['out_dir'] is not None:
+                make_save_dir(dat["exp_dir"], dat['out_dir'])
+            for index, item in enumerate(dat["smp_name"]):     
+                if verbose: print("Saving Files from " + item)
+                frame_count = 0
 
-        # If no subtract background then directly save
-        if bkg_name is None:
-            # save data to .dat file in dir inside experiment dir
-            saveDir = uniquify(os.path.join(exp_dir, smp_name + "_1M"))
-            os.mkdir(saveDir)
-            if verbose:
-                print("Saving Files")
-            for frame in range(numFrames):
-                file_name = smp_name+"_1M_" + str(frame) + ".dat"
-                write_1M_dat_file(header_string, file_name, exp_dir, np.transpose(
-                    [q, IAll[frame], errAll[frame]]))
-                if verbose is True:
-                    print("    Saved frame ", str(frame),
-                          "  to: ", exp_dir, "/", file_name)
+                for frame in range(tot_num_Frames[index]):
+                    save_name = make_save_filename(dat["exp_dir"], dat['output_name_prefix'], dat['out_dir'], [dat["smp_name"][index]], [[frame]])
+                    write_1M_dat_file(save_name, header_string, np.transpose([q, IAll[frame_count], errAll[frame_count]]))
+                    frame_count += 1
+                    if verbose is True: print("    Saved frame ", str(frame), "  to: ", save_name)
             return
 
-    # calc background, dud code from above
-    if bkg_name is not None:
-        imgBkg = fabio.open(os.path.join(exp_dir, bkg_name + '_master.h5'))
-        numFrames = imgBkg.nframes
+    if dat['bkg_name'] is not None:
+        # get background image data
+        imgBkg = []
+        tot_num_Frames_bkg = []
+        for item in dat['bkg_name']:
+            imgBkg.append( fabio.open( os.path.join(dat["exp_dir"], item + '_master.h5')) )
+            tot_num_Frames_bkg.append( imgBkg[-1].nframes )
+        if dat["average_bkg_all"] is True:
+            dat["avList_bkg"] = []
+            for item in tot_num_Frames_bkg:
+                dat["avList_bkg"].append([*range(item)])
 
-        if average_bkg_all is True:
-            avList_bkg = range(numFrames)
+        if dat["avList_bkg"] is not None:
+            if verbose is True: print("Starting integration of background frames, completed:")
+            q, IMeanBkg, errMeanBkg = integrate_scale(dat["avList_bkg"], dat["civiBKG"], dat["rigiBKG"], dat["thickness"], dat["TM_bkg"], dat["scale"], 
+            dat["use_rigi"], tot_num_Frames_bkg, mask_data, imgBkg, ai, dat["num_points"], verbose, dat['bkg_name'])          
 
-        numFrames = len(avList_bkg)
-        count = 0
-        if len(avList_bkg) > 1:
-            for frame in avList_bkg:
-                normValueBkg = calc_norm(
-                    civiBkg[frame], rigiBkg[frame], thickness, TM_bkg, scale, use_rigi)
-                q, IBkg, errBkg = ai.integrate1d(imgBkg.getframe(
-                    frame).data, num_points, error_model="poisson", mask=maskData, unit='q_A^-1', normalization_factor=normValueBkg)
-                if count == 0:
-                    I_bkg_sum = IBkg
-                    err_bkg_sum = np.power(errBkg, 2)
-                elif count >= 1:
-                    I_bkg_sum = np.add(I_bkg_sum, IBkg)
-                    err_bkg_sum = np.add(err_bkg_sum, np.power(errBkg, 2))
-                count += 1
-                if verbose is True:
-                    print("    Radially averaging background frames, completed " +
-                          str(frame) + " number " + str(frame) + " of " + str(numFrames))
-            IMeanBkg = np.divide(I_bkg_sum, numFrames)
-            errMeanBkg = np.divide(np.sqrt(err_bkg_sum), numFrames)
-            if verbose:
-                print("Averaging background frames is complete")
-        elif numFrames == 1:
-            normValueBkg = calc_norm(
-                civiBkg[0], rigiBkg[0], thickness, TM_bkg, scale, use_rigi)
-            q, IMeanBkg, errMeanBkg = ai.integrate1d(
-                imgBkg.data, num_points, error_model="poisson", mask=maskData, unit='q_A^-1', normalization_factor=normValueBkg)
-            if verbose is True:
-                print("A single background frame was selected and radially intergrated")
-        elif numFrames == 0:
-            print("error at line 120 num frames 0")
-
-        # subtract Background from sample, save data and return from function
-        if avList_smp is not None:  # case i
+        # subtract Background from sample and save data
+        if dat['avList_smp'] is not None:  # case 1
             ISubd = np.subtract(IMeanSmp, IMeanBkg)
             # adding error = sqrt(err1^2 + err2^2)
             errSubd = np.sqrt(
                 np.add(np.power(errMeanSmp, 2), np.power(errMeanBkg, 2)))
             # save data
-            file_name = smp_name+"_av_" + \
-                str(avList_smp[0])+"-"+str(avList_smp[-1]) + "_bkg_sub_1M.dat"
-            write_1M_dat_file(header_string, file_name, exp_dir,
-                              np.transpose([q, ISubd, errSubd]))
+            if dat['out_dir'] is not None: # make save dir
+                make_save_dir(dat["exp_dir"], dat['out_dir'])
+            save_name = make_save_filename(dat["exp_dir"], dat["output_name_prefix"], dat['out_dir'], dat["smp_name"], dat['avList_smp'])
+            write_1M_dat_file(save_name, header_string, np.transpose([q, ISubd, errSubd]))
 
             if verbose is True:
                 print("    Subtracted data saved to " +
-                      exp_dir + "/" + file_name)
-        elif avList_smp is None:  # case ii
-            saveDir = uniquify(os.path.join(exp_dir, smp_name + "_1M"))
-            os.mkdir(saveDir)
-            for frame in range(len(IAll)):
-                ISubd = np.subtract(IAll[frame], IMeanBkg)
-                # adding error = sqrt(err1^2 + err2^2)
-                errSubd = np.sqrt(
-                    np.add(np.power(errAll[frame], 2), np.power(errMeanBkg, 2)))
-                # save data
-                file_name = smp_name+"_1M_" + str(frame) + ".dat"
-                write_1M_dat_file(header_string, file_name,
-                                  saveDir, np.transpose([q, ISubd, errSubd]))
-                if verbose is True:
-                    print("    Saved background subtracted frame number " +
-                          str(frame) + " of " + str(len(IAll)) + " to " + str(saveDir) + "/" + file_name)
+                      save_name)
+
+        # NEED TO FIX IN THE AM!!! 
+        # save individual frames
+        elif dat['avList_smp'] is None:  # case ii
+            if dat['out_dir'] is not None: # make save dir
+                make_save_dir(dat["exp_dir"], dat['out_dir'])
+
+            for index, item in enumerate(dat["smp_name"]):     
+                if verbose: print("Saving files from" + item)
+                frame_count = 0
+                for frame in range(tot_num_Frames[index]):
+                    save_name = make_save_filename(dat["exp_dir"], dat['output_name_prefix'], dat['out_dir'], [item], [[frame]])
+                    ISubd = np.subtract(IAll[frame], IMeanBkg)
+                    errSubd = np.sqrt(np.add(np.power(errAll[frame_count], 2), np.power(errMeanBkg, 2)))
+                    write_1M_dat_file(save_name, header_string, np.transpose([q, ISubd, errSubd]))
+                    frame_count += 1
+                    if verbose is True: print("    Saved frame ", str(frame), "  to: ", save_name)
+
             return
 
 
@@ -459,42 +520,71 @@ def hyphen_range(s):
     l.sort()
     return l
 
+def createRangeString(zones):
+    """
+    This does the revers of the hyphen range code. Makes the hyphen range list from the full number list.
+    """
+    buffer = []
+    try:
+        st = ed = zones[0]
+        for i in zones[1:]:
+            delta = i - ed
+            if delta == 1: ed = i
+            elif not (delta == 0):
+                buffer.append((st, ed))
+                st = ed = i
+        else: buffer.append((st, ed))
+    except IndexError:
+        pass
+
+    return ','.join(
+            "%d" % st if st==ed else "%d-%d" % (st, ed)
+            for st, ed in buffer)
+
 
 def run_parser():
     parser = argparse.ArgumentParser(
         description='Reduction program for TPS 13A 1M detector')
-    #parser.add_argument('--out_dir', action='store', help='dir to store results inside exp_dir')
+
     parser.add_argument('-ed', '--exp_dir',
                         action='store', type=str, default=None,
                         help='Directory of experiment, if not set exp_dir == current working directory. (default: %(default)s)')
+                        
+    parser.add_argument('-od', '--out_dir',
+                        action='store', type=str, default=None,
+                        help='Directory to write data to inside experiment directory, data will be saved to experiment directory. (default: %(default)s)')
 
     parser.add_argument('-sn', '--smp_name',
-                        action='store', type=str, default=None,
-                        help='3 characters for sample file letter first. (default: %(default)s)')
+                        action='store', default=None, nargs='+',
+                        help='3 characters for sample file letter first. Can use multiple file names space seperated. (default: %(default)s)')
 
     parser.add_argument('-bn', '--bkg_name',
+                        action='store', default=None, nargs='+',
+                        help='3 characters for bkground file letter first. Can use multiple file names space seperated. (default: %(default)s)')
+
+    parser.add_argument('-op', '--output_name_prefix',
                         action='store', type=str, default=None,
-                        help='3 characters for bkground file letter first. (default: %(default)s)')
+                        help='Prefix for output save name. Save format for single input file: (output_name_prefix)_1M_(frame_selection).dat Save format for mulitple input file (output_name_prefix)_1M_MIX.dat (default: %(default)s)')
 
     parser.add_argument('-ts', '--TMsmp',
-                        action='store', type=float, default=1.0,
-                        help='Value of sample transmission. (default: %(default)s)')
+                        action='store', default=[1.0], nargs='+',
+                        help='Value of sample transmission. One for each sample file. (default: %(default)s)')
 
     parser.add_argument('-tb', '--TMbkg',
-                        action='store', type=float, default=1.0,
-                        help='Value of background transmission. (default: %(default)s)')
+                        action='store', default= [1.0], nargs='+',
+                        help='Value of background transmission. One for each sample file. (default: %(default)s)')
 
     parser.add_argument('-s', '--scale',
                         action='store', type=float, default=1.0,
                         help='Value to scale (multiply) data by. (default: %(default)s)')
 
     parser.add_argument('-as', '--avg_smp',
-                        action='store', type=str, default='all',
-                        help='frames to average, all, none, a (-) and (,) seperated list. (default: %(default)s)')
+                        action='store', default= ['all'], nargs='+',
+                        help='frames to average, all, none, a (-) and (,) seperated list. One list for each sample file, space separated. (default: %(default)s)')
 
     parser.add_argument('-ab', '--avg_bkg',
-                        action='store', type=str, default='all',
-                        help='frames to average, all or a (-) and (,) seperated list. (default: %(default)s)')
+                        action='store', default=['all'], nargs='+',
+                        help='frames to average, all or a (-) and (,) seperated list. One list for each sample file, space separated. (default: %(default)s)')
 
     parser.add_argument('-t', '--thickness',
                         action='store', type=float, default=1.0,
@@ -502,7 +592,15 @@ def run_parser():
 
     parser.add_argument('-m', '--mask',
                         action='store', type=str, default=None,
-                        help='Mask name in exp dir, if none use eiger mask. (default: %(default)s)')
+                        help='User defined (user mask) 2d mask file name in exp dir, if none use eiger mask or reject mask. (default: %(default)s)')
+
+    parser.add_argument('-rm', '--reject_mask',
+                        action='store', type=str, default=None,
+                        help='Reject mask file name, if none, user mask can be applied, or if no other mask Eiger mask is applied (default: %(default)s)')
+
+    parser.add_argument('-cm', '--counting_mask',
+                        action='store', type=str, default=None,
+                        help='Counting mask file name, invese of reject mask, same file format although pixels in the file are included and those not in excluded (default: %(default)s)')
 
     parser.add_argument('-np', '--num_points',
                         action='store', type=int, default=1000,
@@ -523,58 +621,115 @@ def make_exp_dic(args, release_date):
     exp_dic = {'release_date': release_date}
 
     # logic for averaging sample and bkg
-    args.avg_smp = args.avg_smp.replace(" ", "")
-    if args.avg_smp == 'none':
+    if args.avg_smp[0] == 'none':
         exp_dic['average_smp_all'] = False
         exp_dic['avList_smp'] = None
-    elif args.avg_smp == 'all':
+    elif args.avg_smp[0] == 'all':
         exp_dic['average_smp_all'] = True
+        exp_dic['avList_smp'] = None
     else:
-        exp_dic['avList_smp'] = hyphen_range(args.avg_smp)
+        exp_dic['avList_smp'] = []
+        for item in args.avg_smp:
+            exp_dic['avList_smp'].append(hyphen_range(item))
         exp_dic['average_smp_all'] = False
+    
+    if args.bkg_name is not None:
+        if args.avg_bkg[0] == 'all':
+            exp_dic['average_bkg_all'] = True
+        else:
+            exp_dic['avList_bkg'] = []
+            for item in args.avg_bkg:
+                exp_dic['avList_bkg'].append(hyphen_range(item))
+            exp_dic['average_bkg_all'] = False
 
-    args.avg_bkg = args.avg_bkg.replace(" ", "")
-    if args.avg_bkg == 'all':
-        exp_dic['average_bkg_all'] = True
-    else:
-        exp_dic['avList_bkg'] = hyphen_range(args.avg_bkg)
-        exp_dic['average_bkg_all'] = False
-
-    #out_dir = args.out_dir
+    exp_dic['out_dir'] = args.out_dir
+    exp_dic['output_name_prefix'] = args.output_name_prefix
     exp_dic['TM_smp'] = args.TMsmp
     exp_dic['TM_bkg'] = args.TMbkg
     exp_dic['scale'] = args.scale
-    # + '_master.h5' # change to the correct order app bit
-    exp_dic['smp_name'] = args.smp_name[1] + \
-        args.smp_name[2] + args.smp_name[0]
-    exp_dic['bkg_name'] = args.bkg_name
+    # change to the correct order app bit
+    exp_dic['smp_name'] = []
+    for item in args.smp_name:
+        exp_dic['smp_name'].append(item[1] + \
+            item[2] + item[0])
+    
+    # change background to the correct order app bit
     if args.bkg_name is not None:
-        # + '_master.h5' # change to the correct order app bit
-        exp_dic['bkg_name'] = args.bkg_name[1] + \
-            args.bkg_name[2] + args.bkg_name[0]
+        exp_dic['bkg_name'] = []
+        for item in args.bkg_name:
+            exp_dic['bkg_name'].append( item[1] + \
+                item[2] + item[0] )
+    else:
+        exp_dic['bkg_name'] = None
+    
     exp_dic['exp_dir'] = args.exp_dir
     if exp_dic['exp_dir'] is None:
         exp_dic['exp_dir'] = os.getcwd()
     exp_dic['thickness'] = args.thickness
     exp_dic['mask'] = args.mask
+    exp_dic['reject_mask'] = args.reject_mask
+    exp_dic['counting_mask'] = args.counting_mask
     exp_dic['num_points'] = args.num_points
 
-    #FIT2dParams = readWAXSpar(exp_dic['exp_dir'], "WAXSpar.txt")
-    #ai = makeAIobject(**FIT2dParams)
-
-    exp_dic['civiSMP'], exp_dic['rigiSMP'], exp_dic['expSMP'] = readHeaderFile(
-        exp_dic['exp_dir'], exp_dic['smp_name'])
+    # get sample transmission information
+    for index, smpName in enumerate(exp_dic['smp_name']):
+        if index == 0:
+            exp_dic['civiSMP'] = []
+            exp_dic['rigiSMP'] = []
+            exp_dic['expSMP'] = []
+        civi, rigi, expSMP = readHeaderFile(exp_dic['exp_dir'], smpName)
+        exp_dic['civiSMP'].append(civi)
+        exp_dic['rigiSMP'].append(rigi)
+        exp_dic['expSMP'].append(expSMP)
+    
     exp_dic['use_rigi'] = False
     if min(exp_dic['civiSMP']) == 0:
         exp_dic['use_rigi'] = True
 
+    # get background transmission information
     if exp_dic['bkg_name'] is not None:
-        exp_dic['civiBKG'], exp_dic['rigiBKG'], exp_dic['expBKG'] = readHeaderFile(
-            exp_dic['exp_dir'], exp_dic['bkg_name'])
+        for index, bkgName in enumerate(exp_dic['bkg_name']):
+            if index == 0:
+                exp_dic['civiBKG'] = []
+                exp_dic['rigiBKG'] = []
+                exp_dic['expBKG'] = []
+            civi, rigi, expSMP = readHeaderFile(exp_dic['exp_dir'], bkgName)
+            exp_dic['civiBKG'].append(civi)
+            exp_dic['rigiBKG'].append(rigi)
+            exp_dic['expBKG'].append(expSMP)
+        
         if min(exp_dic['civiBKG']) == 0:
             exp_dic['use_rigi'] = True
     verbose = args.verbose
     logfile = args.logfile
+
+    # Check that the number of sample files, average list and TM are the same length
+    if exp_dic['avList_smp'] is not None:
+        if len(exp_dic['avList_smp']) != len(exp_dic['smp_name']):
+            print("Error!! " + str(len(exp_dic['smp_name'])) + " sample file names found and is not the same as the " + str(len(exp_dic['avList_smp'])) + " average sample input")
+            return
+
+    if len(exp_dic['TM_smp']) != len(exp_dic['smp_name']):
+        print("Warning!! " + str(len(exp_dic['smp_name'])) + " sample file names found and is not the same as the " + str(len(exp_dic['TM_smp'])) + " transmission sample input")
+        if len(exp_dic['TM_smp']) == 1:
+            print("setting the same smp TM for all input files, please be careful here!")
+            for index in range(len(exp_dic['TM_smp'])):
+                exp_dic['TM_smp'].append(exp_dic['TM_smp'][0])
+
+
+    # Check that the number of Background files, average list and TM are the same length
+    if exp_dic['bkg_name'] is not None:
+        # if len(exp_dic['avList_bkg']) != len(exp_dic['bkg_name']):
+        #     print("Error!! " + str(len(exp_dic['bkg_name'])) + " background file names found and is not the same as the " + str(len(exp_dic['avList_bkg'])) + " average background input")
+        #     return
+
+        if len(exp_dic['TM_bkg']) != len(exp_dic['bkg_name']):
+            print("Warning!! " + str(len(exp_dic['bkg_name'])) + " background file names found and is not the same as the " + str(len(exp_dic['TM_bkg'])) + " transmission background input")
+            if len(exp_dic['TM_bkg']) == 1:
+                print("setting the same BKG TM for all input files, please be careful here!")
+                for index in range(len(exp_dic['TM_bkg'])):
+                    exp_dic['TM_bkg'].append(exp_dic['TM_bkg'][0])
+
     return exp_dic, verbose, logfile
 
 
@@ -610,7 +765,7 @@ def main():
     pythonic methods before the final release.
     #################################################
     """
-    release_date = "10th Feb 2022"
+    release_date = "1st March 2022"
     args, parser = run_parser()
 
     # check that we at least have an experiment directory and file name
@@ -642,15 +797,7 @@ def main():
         print_main_info(FIT2dParams, expInfo, preamble, ai)
     else:
         print("Started, verbose off, supressing output.")
-        # print(preamble)
-        # print("Fit2d parameter file read: " + expInfo['exp_dir'] + "/" + fit2d_parameter_file)
-        # print("Found the following values:")
-        # for element in FIT2dParams:
-        #     print("    ", element,':', FIT2dParams[element])
-        # print("pyFAI azimuthal integration object ai contains:")
-        # for element in ai.get_config():
-        #     print("    ", element,':', ai.get_config()[element])
-
+        
     integrate(ai, verbose, FIT2dParams, **expInfo)
     if not verbose:
         print("finished")
