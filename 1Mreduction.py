@@ -29,8 +29,8 @@ def start_logging(expInfo, log_name):
     if expInfo["out_dir"] is None:
         path = expInfo["exp_dir"] + "/" + log_name
     else:
-        if not os.path.exists(exp_dir + "/" + out_dir):
-            os.makedirs(exp_dir + "/" + out_dir)
+        if not os.path.exists(expInfo["exp_dir"] + "/" + expInfo["out_dir"]):
+            os.makedirs(expInfo["exp_dir"] + "/" + expInfo["out_dir"])
         path = expInfo["exp_dir"] + "/" + expInfo["out_dir"] + "/" + log_name
     print("Running information is being  saved in: ", path)
     sys.stdout = open(path, 'w')
