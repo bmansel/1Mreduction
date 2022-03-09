@@ -206,7 +206,6 @@ def make_counting_mask(image, counting_data):
 def combine_masks(eiger_mask, user_mask, reject_mask, counting_mask):
     combined_mask = eiger_mask + user_mask + reject_mask + counting_mask
     combined_mask[combined_mask > 1] = 1
-    #combined_mask[combined_mask > 1] = 1
     return np.array(combined_mask)
 
 def calc_norm(civi, rigi, thickness, TM, scale, use_rigi):
@@ -491,7 +490,7 @@ def integrate(ai, verbose, FIT2dParams, **dat):
                 make_save_dir(dat["exp_dir"], dat['out_dir'])
 
             for index, item in enumerate(dat["smp_name"]):     
-                if verbose: print("Saving files from" + item)
+                if verbose: print("Saving files from " + item)
                 frame_count = 0
                 for frame in range(tot_num_Frames[index]):
                     save_name = make_save_filename(dat["exp_dir"], dat['output_name_prefix'], dat['out_dir'], [item], [[frame]])
@@ -721,8 +720,8 @@ def make_exp_dic(args, release_date):
             #for index in range(len(exp_dic['TM_smp'])):
             while len(exp_dic['TM_smp']) < len(exp_dic['smp_name']):
                 exp_dic['TM_smp'].append(exp_dic['TM_smp'][0])
-            else:
-                print("TM_smp larger than length sample name")
+        else:
+            print("TM_smp larger than length sample name")
 
     # Check that the number of Background files, average list and TM are the same length
     if exp_dic['bkg_name'] is not None:
@@ -772,7 +771,7 @@ def main():
     pythonic methods before the final release.
     #################################################
     """
-    release_date = "1st March 2022"
+    release_date = "9th March 2022"
     args, parser = run_parser()
 
     # check that we at least have an experiment directory and file name
