@@ -624,9 +624,13 @@ def make_exp_dic(args, release_date):
     if args.avg_smp[0] == 'none':
         exp_dic['average_smp_all'] = False
         exp_dic['avList_smp'] = None
-    elif args.avg_smp[0] == 'all':
-        exp_dic['average_smp_all'] = True
-        exp_dic['avList_smp'] = None
+    elif 'all' in args.avg_smp:
+        if len(args.avg_smp) == 1:
+            exp_dic['average_smp_all'] = True
+            exp_dic['avList_smp'] = None
+        else:
+            print('ERROR: average all for sample must be a single entry.')
+            return
     else:
         exp_dic['avList_smp'] = []
         for item in args.avg_smp:
@@ -634,8 +638,12 @@ def make_exp_dic(args, release_date):
         exp_dic['average_smp_all'] = False
     
     if args.bkg_name is not None:
-        if args.avg_bkg[0] == 'all':
-            exp_dic['average_bkg_all'] = True
+        if 'all' in args.avg_bkg:
+            if len(args.avg_bkg) == 1:
+                exp_dic['average_bkg_all'] = True
+            else:
+                print('ERROR: average all for background must be a single entry.')
+                return
         else:
             exp_dic['avList_bkg'] = []
             for item in args.avg_bkg:
