@@ -279,7 +279,7 @@ use_rigi, tot_num_Frames, maskData, img, ai, num_points, verbose, img_series_nam
         average_frames = True
     for list in use_list:
         total_use_Frames = total_use_Frames + len(list)
-
+    cur_frame_count = 1
     for index, item in enumerate(img):
         numFrames = numFrames + len(use_list[index])
         for cur_no, frame in enumerate(use_list[index]):
@@ -304,8 +304,11 @@ use_rigi, tot_num_Frames, maskData, img, ai, num_points, verbose, img_series_nam
             else: IAll.append(I), errAll.append(err)
 
             if verbose is True:
+                
                 print("    Frame ID number: " + str(frame) +
-                        ". Processed image " + str(cur_no+1) + "/" + str(len(use_list[index])) + " in " + img_series_name[index] + "_master.h5 - " + str(num_av) + "/" + str(total_use_Frames) + " total integrated.")
+                            ". Processed image " + str(cur_no+1) + "/" + str(len(use_list[index])) + " in " + img_series_name[index] + "_master.h5 - " + str(cur_frame_count) + "/" + str(total_use_Frames) + " total integrated.")
+            cur_frame_count += 1
+
     if average_frames:
         if verbose: print("Dividing by " + str(numFrames) + " for average.")
         IMean = np.divide(I_sum, numFrames)
@@ -723,9 +726,6 @@ def make_exp_dic(args, release_date):
 
     # Check that the number of Background files, average list and TM are the same length
     if exp_dic['bkg_name'] is not None:
-        # if len(exp_dic['avList_bkg']) != len(exp_dic['bkg_name']):
-        #     print("Error!! " + str(len(exp_dic['bkg_name'])) + " background file names found and is not the same as the " + str(len(exp_dic['avList_bkg'])) + " average background input")
-        #     return
 
         if len(exp_dic['TM_bkg']) != len(exp_dic['bkg_name']):
             print("Warning!! " + str(len(exp_dic['bkg_name'])) + " background file names found and is not the same as the " + str(len(exp_dic['TM_bkg'])) + " transmission background input")
