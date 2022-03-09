@@ -225,7 +225,8 @@ def make_save_filename(exp_dir, output_name_prefix, out_dir, smp_name, frames):
     # frames a list of lists
     #check if save directory exists and make it if not
 
-    #if output_name_prefix is not None:
+    if output_name_prefix is None: output_name_prefix = ""
+
     if len(smp_name) == 1:
         range_string = createRangeString(frames[0])
         #output_name_prefix = output_name_prefix + "_1M"
@@ -239,24 +240,6 @@ def make_save_filename(exp_dir, output_name_prefix, out_dir, smp_name, frames):
             save_name = os.path.join(exp_dir, out_dir, output_name_prefix + "_1M_MIX.dat")
         else:
             save_name = os.path.join(exp_dir, output_name_prefix + "_1M_MIX.dat")
-    # else:
-    #     if len(smp_name) == 1:
-    #         range_string = createRangeString(frames[0])
-    #         output_name_prefix = "1M_" + smp_name[0]
-    #         if out_dir is not None:
-    #             save_name = os.path.join(exp_dir, out_dir, output_name_prefix + "_" + range_string + ".dat")
-    #         else:
-    #             save_name = os.path.join(exp_dir, output_name_prefix + "_" + range_string + ".dat")
-    #     elif len(smp_name) > 1:
-    #         output_name_prefix = smp_name[0]
-    #         for index, item in enumerate(smp_name): 
-    #             if index != 0:
-    #                 output_name_prefix = output_name_prefix + "_" + item
-    #         output_name_prefix = output_name_prefix + "_"
-    #         if out_dir is not None:
-    #             save_name = os.path.join(exp_dir, out_dir, output_name_prefix + "1M_MIX.dat")
-    #         else:
-    #             save_name = os.path.join(exp_dir, output_name_prefix + "_1M_MIX.dat")
     return save_name
 
 def integrate_scale(avList, civi, rigi, thickness, TM, scale, 
