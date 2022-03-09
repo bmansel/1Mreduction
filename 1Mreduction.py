@@ -681,9 +681,10 @@ def make_exp_dic(args, release_date):
         exp_dic['expSMP'].append(expSMP)
     
     exp_dic['use_rigi'] = False
-    if min(exp_dic['civiSMP']) == 0:
-        exp_dic['use_rigi'] = True
-
+    for civi_values in exp_dic['civiSMP']:
+        if min(civi_values) == 0:
+            exp_dic['use_rigi'] = True
+    
     # get background transmission information
     if exp_dic['bkg_name'] is not None:
         for index, bkgName in enumerate(exp_dic['bkg_name']):
@@ -696,24 +697,29 @@ def make_exp_dic(args, release_date):
             exp_dic['rigiBKG'].append(rigi)
             exp_dic['expBKG'].append(expSMP)
         
-        if min(exp_dic['civiBKG']) == 0:
-            exp_dic['use_rigi'] = True
+        for civi_values in exp_dic['civiBKG']:
+            if min(civi_values) == 0:
+                exp_dic['use_rigi'] = True
+    
+    
     verbose = args.verbose
     logfile = args.logfile
 
     # Check that the number of sample files, average list and TM are the same length
     if exp_dic['avList_smp'] is not None:
-        if len(exp_dic['avList_smp']) != len(exp_dic['smp_name']):
+        if len(exp_dic['avList_smp']) < len(exp_dic['smp_name']):
             print("Error!! " + str(len(exp_dic['smp_name'])) + " sample file names found and is not the same as the " + str(len(exp_dic['avList_smp'])) + " average sample input")
             return
 
     if len(exp_dic['TM_smp']) != len(exp_dic['smp_name']):
         print("Warning!! " + str(len(exp_dic['smp_name'])) + " sample file names found and is not the same as the " + str(len(exp_dic['TM_smp'])) + " transmission sample input")
-        if len(exp_dic['TM_smp']) == 1:
-            print("setting the same smp TM for all input files, please be careful here!")
-            for index in range(len(exp_dic['TM_smp'])):
+        if len(exp_dic['TM_smp']) < len(exp_dic['smp_name']):
+            print("setting the same smp TM for remaining input files the same as first, please be careful here!")
+            #for index in range(len(exp_dic['TM_smp'])):
+            while len(exp_dic['TM_smp']) < len(exp_dic['smp_name']):
                 exp_dic['TM_smp'].append(exp_dic['TM_smp'][0])
-
+            else:
+                print("TM_smp larger than length sample name")
 
     # Check that the number of Background files, average list and TM are the same length
     if exp_dic['bkg_name'] is not None:
@@ -723,10 +729,13 @@ def make_exp_dic(args, release_date):
 
         if len(exp_dic['TM_bkg']) != len(exp_dic['bkg_name']):
             print("Warning!! " + str(len(exp_dic['bkg_name'])) + " background file names found and is not the same as the " + str(len(exp_dic['TM_bkg'])) + " transmission background input")
-            if len(exp_dic['TM_bkg']) == 1:
+            if len(exp_dic['TM_bkg']) < len(exp_dic['bkg_name']):
                 print("setting the same BKG TM for all input files, please be careful here!")
-                for index in range(len(exp_dic['TM_bkg'])):
+                #for index in range(len(exp_dic['bkg_name'])):
+                while len(exp_dic['TM_bkg']) < len(exp_dic['bkg_name']):
                     exp_dic['TM_bkg'].append(exp_dic['TM_bkg'][0])
+            else:
+                print("TM_bkg larger than length background name")
 
     return exp_dic, verbose, logfile
 
