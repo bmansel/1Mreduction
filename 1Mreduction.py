@@ -548,7 +548,7 @@ def run_parser():
 
     parser.add_argument('-ed', '--exp_dir',
                         action='store', type=str, default=None,
-                        help='Directory of experiment, if not set exp_dir == current working directory. (default: %(default)s)')
+                        help='Directory of experiment, must be set. (default: %(default)s)')
                         
     parser.add_argument('-od', '--out_dir',
                         action='store', type=str, default=None,
@@ -556,7 +556,7 @@ def run_parser():
 
     parser.add_argument('-sn', '--smp_name',
                         action='store', default=None, nargs='+',
-                        help='3 characters for sample file letter first. Can use multiple file names space seperated. (default: %(default)s)')
+                        help='3 characters for sample file letter first. Can use multiple file names space seperated. Must be set. (default: %(default)s)')
 
     parser.add_argument('-bn', '--bkg_name',
                         action='store', default=None, nargs='+',
@@ -611,8 +611,6 @@ def run_parser():
     parser.add_argument('-l', '--logfile',
                         action='store_true',
                         help='If -l then output information to logfile 1Mreduction.log (default: %(default)s)')
-    # parser.add_argument("--type", default="toto", choices=["toto","titi"],
-    #                          help = "type (default: %(default)s)")
     args = parser.parse_args()
     return args, parser
 
