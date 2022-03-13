@@ -134,8 +134,8 @@ def makeAIobject(**kwargs):
     wavelengthcalc = plankC * speedLightC / 1000 / float(energy)
     ai = azimuthalIntegrator.AzimuthalIntegrator(
         detector=detector, wavelength=wavelengthcalc)
-    ai.setFit2D(float(directBeam), float(beamX), 1065.0-float(beamY),
-                tilt=float(tilt), tiltPlanRotation=float(tiltPlanRotation))
+    ai.setFit2D(float(directBeam), float(beamX), float(beamY),
+                tilt=float(tilt), tiltPlanRotation=float(tiltPlanRotation)) # changed from 1065.0-float(beamY)
     return ai
 
 def numLines(exp_dir, fname):
