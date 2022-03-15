@@ -18,6 +18,7 @@
 
 import hdf5plugin
 from pyFAI import azimuthalIntegrator
+import pyFAI
 import fabio
 import os
 import argparse
@@ -34,6 +35,12 @@ def start_logging(expInfo, log_name):
         path = expInfo["exp_dir"] + "/" + expInfo["out_dir"] + "/" + log_name
     print("Running information is being  saved in: ", path)
     sys.stdout = open(path, 'w')
+
+def return_energy(azi_obj):
+    plankC = float(4.135667696e-15)  # Planck's constant in ev/Hz
+    speedLightC = float(299_792_458)  # speed of light m/s
+    energy = plankC * speedLightC / 1000 / azi_obj.get_wavelength()
+    return energy
 
 def uniquify(path): # this is not being used currently
     counter = 0
@@ -695,7 +702,7 @@ def make_exp_dic(args, release_date):
             if min(civi_values) == 0:
                 exp_dic['use_rigi'] = True
     
-    exp_dic["PONI_file"] = ars.PONI_file
+    exp_dic["PONI_file"] = args.PONI_file
     
     verbose = args.verbose
     logfile = args.logfile
@@ -738,9 +745,12 @@ def print_main_info(FIT2dParams, expInfo, preamble, ai):
     print("\n1Mreduction started at ", dt_string)
 
     print(preamble)
-
-    print("Fit2d parameter file read: " +
+    if expInfo["PONI_file"] is None:
+        print("Fit2d parameter file read: " +
           expInfo['exp_dir'] + "/" + FIT2dParams["fname"])
+    else:
+        print("PONI file read: " +
+          expInfo['exp_dir'] + "/" + expInfo["PONI_file"])
 
     print("Found the following values:")
     for key in FIT2dParams:
@@ -764,7 +774,7 @@ def main():
     pythonic methods before the final release.
     #################################################
     """
-    release_date = "9th March 2022"
+    release_date = "16th March 2022"
     args, parser = run_parser()
 
     # check that we at least have an experiment directory and file name
@@ -793,9 +803,12 @@ def main():
             expInfo['exp_dir'], fname="WAXSpar.txt", detectorName="eiger1m")
         ai = makeAIobject(**FIT2dParams)
     else:
+        plankC = float(4.135667696e-15)  # Planck's constant in ev/Hz
+        speedLightC = float(299_792_458)  # speed of light m/s
+        
         ai =  pyFAI.load(os.path.join( expInfo['exp_dir'], expInfo["PONI_file"]))
-        FIT2dParams = ai.getfit2D()
-
+        FIT2dParams = ai.getFit2D()
+        FIT2dParams["energy"] = return_energy(ai)
     
     if verbose is True:
         print_main_info(FIT2dParams, expInfo, preamble, ai)
