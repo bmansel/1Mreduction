@@ -134,7 +134,7 @@ def makeAIobject(**kwargs):
     wavelengthcalc = plankC * speedLightC / 1000 / float(energy)
     ai = azimuthalIntegrator.AzimuthalIntegrator(
         detector=detector, wavelength=wavelengthcalc)
-    ai.setFit2D(float(directBeam), float(beamX), float(beamY),
+    ai.setFit2D(float(directBeam), float(beamX), 1065.0 - float(beamY),
                 tilt=float(tilt), tiltPlanRotation=float(tiltPlanRotation)) # changed from 1065.0-float(beamY)
     return ai
 
@@ -594,6 +594,9 @@ def run_parser():
     parser.add_argument('-l', '--logfile',
                         action='store_true',
                         help='If -l then output information to logfile 1Mreduction.log (default: %(default)s)')
+    parser.add_argument('-pf', '--PONI_file',
+                        action='store', type=str, default=None,
+                        help='Name of PONI (point of normal incidence) file for PyFAI geometry definition. (default: %(default)s)')
     args = parser.parse_args()
     return args, parser
 
@@ -692,6 +695,7 @@ def make_exp_dic(args, release_date):
             if min(civi_values) == 0:
                 exp_dic['use_rigi'] = True
     
+    exp_dic["PONI_file"] = ars.PONI_file
     
     verbose = args.verbose
     logfile = args.logfile
@@ -783,11 +787,16 @@ def main():
         start_logging(expInfo, "1Mreduction.log")
         verbose = True
 
-    # read fit2d parameters from this file
-    FIT2dParams = readWAXSpar(
-        expInfo['exp_dir'], fname="WAXSpar.txt", detectorName="eiger1m")
+    if expInfo["PONI_file"] is None:
+        # read fit2d parameters from this file
+        FIT2dParams = readWAXSpar(
+            expInfo['exp_dir'], fname="WAXSpar.txt", detectorName="eiger1m")
+        ai = makeAIobject(**FIT2dParams)
+    else:
+        ai =  pyFAI.load(os.path.join( expInfo['exp_dir'], expInfo["PONI_file"]))
+        FIT2dParams = ai.getfit2D()
 
-    ai = makeAIobject(**FIT2dParams)
+    
     if verbose is True:
         print_main_info(FIT2dParams, expInfo, preamble, ai)
     else:
